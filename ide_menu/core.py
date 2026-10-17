@@ -38,6 +38,7 @@ import os
 import re
 import shutil
 import subprocess
+import sys
 import time
 from dataclasses import dataclass
 from typing import Iterator, Sequence
@@ -59,6 +60,9 @@ __all__ = [
     "get_items",
     "select_matches",
     "add_items",
+    "is_admin",
+    "relaunch_elevated",
+    "require_admin",
     "app_name_from_path",
     "app_name_from_version_info",
     "exe_icon_path",
@@ -817,6 +821,101 @@ def add_items(
         done.add((ctx, label))
 
     return log
+
+
+# --------------------------------------------------------------------------
+# 管理员权限 / 提权
+# --------------------------------------------------------------------------
+#
+# 打包出来的 exe 通过 build.py 的 --uac-admin 写入了
+# ``requestedExecutionLevel level="requireAdministrator"`` 清单，
+# 因此**双击时 Windows 就会先弹 UAC**，进程直接就是管理员。
+#
+# 下面这两个函数是运行时兜底：源码方式运行（或别人没用 --uac-admin 打包）时，
+# 检测到不是管理员就通过 ShellExecuteW "runas" 重新拉起自己。
+
+_RUNAS_CANCELED = 1223  # ERROR_CANCELLED
+
+
+def is_admin() -> bool:
+    """当前进程是否已经以管理员身份运行。"""
+    try:
+        import ctypes
+
+        return bool(ctypes.windll.shell32.IsUserAnAdmin())
+    except Exception:  # noqa: BLE001 - 探测失败时按"非管理员"处理
+        return False
+
+
+def relaunch_elevated(argv: Sequence[str] | None = None) -> bool:
+    """
+    以管理员身份重新启动当前程序。
+
+    返回值：
+        ``True``  已经成功以管理员身份重新拉起（调用方应当立即退出）；
+        ``False`` 已经在管理员身份下、或用户取消了 UAC、或提权失败
+                  （调用方应当继续以当前身份运行）。
+    """
+    if is_admin():
+        return False
+    args = list(argv if argv is not None else sys.argv[1:])
+    if getattr(sys, "frozen", False):
+        target = sys.executable
+        params = subprocess.list2cmdline(args)
+    else:
+        # 源码运行：sys.argv[0] 是 __main__.py 的完整路径
+        target = sys.executable
+        params = subprocess.list2cmdline([os.path.abspath(sys.argv[0])] + args)
+    try:
+        import ctypes
+
+        rc = int(ctypes.windll.shell32.ShellExecuteW(None, "runas", target, params, None, 1))
+    except Exception:  # noqa: BLE001
+        return False
+    if rc == _RUNAS_CANCELED:
+        raise AccessDenied_("已取消提权，继续以当前（非管理员）身份运行。")
+    return rc > 32
+
+
+def require_admin(gui_title: str = "", gui: bool = True) -> bool:
+    """
+    确保以管理员身份运行；必要时弹窗询问并提权。
+
+    返回 ``True`` 表示已经处于管理员身份，可继续启动界面。
+    """
+    if is_admin():
+        return True
+    # 先告知用户为什么要提权
+    msg = (
+        "本工具需要管理员权限才能操作 HKLM 下的「通过 IDE 打开」菜单项。\n\n"
+        "是否以管理员身份重新启动？"
+    )
+    if gui:
+        try:
+            import tkinter as tk
+            from tkinter import messagebox
+
+            root = tk.Tk()
+            root.withdraw()
+            try:
+                ok = messagebox.askyesno(gui_title or "需要管理员权限", msg, default="yes")
+            finally:
+                root.destroy()
+        except Exception:  # noqa: BLE001 - 无 GUI 时退回到命令行确认
+            ok = input("(需要管理员权限) 是否以管理员身份重新启动？[y/N] ").strip().lower() == "y"
+        if not ok:
+            return False
+    try:
+        return not relaunch_elevated()
+    except AccessDenied_:
+        if gui:
+            try:
+                from tkinter import messagebox
+
+                messagebox.showwarning("需要管理员权限", "已取消提权，部分菜单项将无法修改。")
+            except Exception:  # noqa: BLE001
+                pass
+        return False
 
 
 # --------------------------------------------------------------------------

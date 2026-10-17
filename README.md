@@ -153,6 +153,35 @@ tests/test_core.py  单元测试
 - 本机装有 **ContextMenuManager** 一类会自动同步注册表的工具，它可能把被删除的子菜单项 **重新写回来**。删除后请确认一次；若被还原，需要在该工具中同步移除。
 - 删除 **HKCU** 下的键不需要管理员权限；删除 **HKLM** 下的键需要以管理员身份运行本程序，否则日志会给出 `NEEDADMIN` 提示。
 
+## 管理员权限（每次双击都会弹 UAC）
+
+「通过 IDE 打开」的菜单项一部分在 `HKLM\Software\Classes` 下，**写入 HKLM 必须有管理员权限**，
+因此打包时给 exe 写入了 UAC 清单：
+
+```python
+# build.py
+COMMON_ARGS = ["--onefile", "--clean", "--noconfirm", "--uac-admin", ...]
+```
+
+PyInstaller 的 `--uac-admin` 会把
+
+```xml
+<requestedExecutionLevel level="requireAdministrator" uiAccess="false"/>
+```
+
+写进 exe 的清单，于是 **Windows 每次双击都会先弹 UAC，进程直接就是管理员**。
+
+另外还有一层运行时兜底（`entry_gui.py`）：
+
+```python
+if "--self-test" not in argv and not core.is_admin():
+    if core.require_admin(gui_title=APP_TITLE, gui=True):
+        raise SystemExit(0)   # 已重新以管理员身份拉起，本进程退出
+```
+
+覆盖「用 `python entry_gui.py` 直接跑」或「打包时漏了 `--uac-admin`」的情况；
+用户点「否」则会以当前身份继续运行，此时 HKLM 的操作会得到 `NEEDADMIN` 提示。
+
 ## 许可
 
 仅供个人使用。

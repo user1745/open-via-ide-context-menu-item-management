@@ -2,7 +2,10 @@
 """PyInstaller 构建脚本。
 
 产出一个单文件 exe：
-    dist/通过IDE打开·右键菜单项管理（阿懂）.exe   图形界面（无控制台窗口）—— 双击即用
+    dist/通过IDE打开·右键菜单项管理 (阿董).exe   图形界面（无控制台窗口）—— 双击即用
+
+exe 通过 ``--uac-admin`` 写入了 ``requireAdministrator`` 清单，
+**每次双击 Windows 都会先弹 UAC**，进程直接以管理员身份启动。
 
 > 早期版本还打包过 ``ide-menu-cli.exe``，现已按需求移除，源码里的 ``ide_menu.cli``
 > 仍保留，可通过 ``python -m ide_menu`` 使用。
@@ -37,6 +40,9 @@ COMMON_ARGS = [
     "--clean",
     "--noconfirm",
     "--log-level", "WARN",
+    # 让 exe 双击时 Windows 就弹 UAC，进程直接以管理员身份启动。
+    # 工具需要写 HKLM\Software\Classes 下的菜单项，没有提权就用不了。
+    "--uac-admin",
     "--hidden-import", "winreg",
     "--hidden-import", "tkinter",
     "--hidden-import", "tkinter.scrolledtext",
