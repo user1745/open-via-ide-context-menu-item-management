@@ -1,0 +1,11 @@
+# 统一换行符，避免跨机器协作时整文件出现无意义 diff。
+# 默认让 git 自动探测文本文件，提交时统一存为 LF。
+* text=auto
+
+# Windows 批处理必须用 CRLF，否则双击运行会出问题。
+*.bat text eol=crlf
+
+# Python 源码与文档统一 LF。
+*.py text eol=lf
+*.md text eol=lf
+*.txt text eol=lf
