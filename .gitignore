@@ -1,0 +1,26 @@
+# ---- PyInstaller 构建产物 ----
+build/
+dist/
+*.spec
+
+# ---- Python ----
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+
+# ---- 备份与临时文件 ----
+*.reg
+*.log
+*.bak
+
+# ---- 编辑器 / 系统 ----
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# ---- 目录中原有的其它工具目录 ----
+.codegraph/
+.omo/

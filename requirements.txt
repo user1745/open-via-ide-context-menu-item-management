@@ -1,0 +1,2 @@
+# 构建 exe 所需（tkinter / winreg 随 Python 自带，无需安装）
+pyinstaller==6.19.0
