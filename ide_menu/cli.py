@@ -26,10 +26,13 @@ def build_parser() -> argparse.ArgumentParser:
         epilog=(
             "示例:\n"
             "  ide-menu --list\n"
-            "  ide-menu -n Code --dry-run\n"
-            "  ide-menu -n Code Cursor TRAE* -y\n"
-            "  ide-menu -n 'TRAE CN' -m          # 按显示文本匹配\n"
-            "  ide-menu -n OpenCode -p --restart # 删除后顺便清空菜单并重启资源管理器\n"
+            "  ide-menu -n '通过 Code 打开' --dry-run\n"
+            "  ide-menu -n '通过 Code 打开' '通过 Cursor 打开' -y\n"
+            "  ide-menu -n '通过 TRAE* 打开' -y            # 通配符\n"
+            "  ide-menu -n '通过 OpenCode 打开' -p --restart\n"
+            "\n"
+            "注意：必须输入子菜单项的**完整名称**（MUIVerb），\n"
+            "      只写应用名（Code）不会命中。\n"
         ),
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
@@ -40,7 +43,7 @@ def build_parser() -> argparse.ArgumentParser:
         "--name",
         nargs="+",
         metavar="NAME",
-        help="要删除的子菜单项名称，支持 * ? 通配符，可给多个",
+        help="要删除的子菜单项全称（如「通过 Code 打开」），支持 * ? 通配符，可给多个",
     )
     p.add_argument(
         "-c",
@@ -49,7 +52,6 @@ def build_parser() -> argparse.ArgumentParser:
         default="All",
         help="限定操作的上下文，默认 All",
     )
-    p.add_argument("-m", "--match-verb-text", action="store_true", help="同时按显示文本(MUIVerb)匹配")
     p.add_argument("-p", "--prune-empty", action="store_true", help="某处删空后一并删除空的父菜单")
     p.add_argument("-b", "--no-backup", action="store_true", help="删除前不导出 .reg 备份（不推荐）")
     p.add_argument("-B", "--backup-dir", metavar="DIR", help="备份输出目录")
@@ -112,7 +114,7 @@ def _print_state(ctxs: Sequence[str], as_json: bool) -> None:
             print("    <无子菜单项>")
             continue
         for i in rows:
-            print(f"    {i.name:<20} {i.label_escaped}")
+            print(f"    {i.label_escaped}   [{i.name}]")
         print()
 
 
@@ -138,7 +140,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             print("没有解析出有效的名称。", file=sys.stderr)
             return EXIT_NO_MATCH
 
-        plan = core.select_matches(patterns, ctxs, match_verb_text=args.match_verb_text)
+        plan = core.select_matches(patterns, ctxs)
 
         if not args.json:
             print(f"目标: {', '.join(patterns)}")
@@ -146,9 +148,9 @@ def main(argv: Sequence[str] | None = None) -> int:
             print("匹配结果")
             print("-" * 46)
             for ctx in ctxs:
-                names = [m.name for m in plan if m.context == ctx]
+                names = [m.display for m in plan if m.context == ctx]
                 if names:
-                    print(f"  {core.LABEL_ASCII[ctx]} : 将删除 {len(names)} -> {', '.join(names)}")
+                    print(f"  {core.LABEL_ASCII[ctx]} : 将删除 {len(names)} -> {', '.join(core.escape_non_ascii(n) for n in names)}")
                 else:
                     print(f"  {core.LABEL_ASCII[ctx]} : 不存在，跳过")
             print()
@@ -158,6 +160,9 @@ def main(argv: Sequence[str] | None = None) -> int:
                 print(json.dumps({"removed": [], "planned": []}, ensure_ascii=False))
             else:
                 print("任何上下文都没有匹配项，未做任何修改。")
+                print("提示：必须输入子菜单项的完整名称，当前可用：")
+                for label in sorted({i.label_escaped for i in core.get_items(ctxs)}):
+                    print(f"    · {label}")
             return EXIT_NO_MATCH
 
         if args.json:

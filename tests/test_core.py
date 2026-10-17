@@ -120,18 +120,20 @@ class TestReadOnlyRegistry(unittest.TestCase):
                 self.assertEqual(verbs[ctx].target, core.LEAF[ctx])
 
     def test_exact_match(self):
+        """按全称精确匹配：只在该项所属的上下文里命中一次。"""
         if not self.items:
             self.skipTest("无项目")
         sample = self.items[0]
-        hits = core.select_matches([sample.name], [sample.context])
+        hits = core.select_matches([sample.label], [sample.context])
         self.assertEqual([(h.context, h.name) for h in hits], [(sample.context, sample.name)])
 
     def test_match_is_case_insensitive(self):
         if not self.items:
             self.skipTest("无项目")
         sample = self.items[0]
-        hits = core.select_matches([sample.name.upper()], [sample.context])
+        hits = core.select_matches([sample.label.upper()], [sample.context])
         self.assertIn(sample.name, [h.name for h in hits])
+        self.assertIn(sample.label, [h.label for h in hits])
 
     def test_wildcard(self):
         if not self.items:
@@ -139,18 +141,34 @@ class TestReadOnlyRegistry(unittest.TestCase):
         hits = core.select_matches(["*"], core.CONTEXT_IDS)
         self.assertEqual(len(hits), len(self.items))
 
+    def test_full_name_pattern(self):
+        """全称（MUIVerb）必须命中。"""
+        if not self.items:
+            self.skipTest("无项目")
+        sample = self.items[0]
+        hits = core.select_matches([sample.label], core.CONTEXT_IDS)
+        self.assertIn(sample.name, [h.name for h in hits])
+
+    def test_bare_app_name_does_not_match(self):
+        """只写应用名（注册表子键名）不得命中。"""
+        if not self.items:
+            self.skipTest("无项目")
+        for sample in self.items:
+            with self.subTest(name=sample.name):
+                hits = core.select_matches([sample.name], core.CONTEXT_IDS)
+                self.assertEqual(hits, [], f"子键名 {sample.name!r} 不应命中")
+
     def test_non_existent_name_yields_nothing(self):
         hits = core.select_matches(["__definitely_not_here__"], core.CONTEXT_IDS)
         self.assertEqual(hits, [])
 
-    def test_verb_text_match(self):
-        by_name = core.select_matches(["*"], ["Bg"])
-        if not by_name:
-            self.skipTest("Bg 为空")
-        target = by_name[0].name
-        # 用子键名的一个片段去匹配显示文本
-        hits = core.select_matches([target], core.CONTEXT_IDS, match_verb_text=True)
-        self.assertIn(target, [h.name for h in hits])
+    def test_display_prefers_label(self):
+        if not self.items:
+            self.skipTest("无项目")
+        sample = self.items[0]
+        m = core.Match("Bg", sample.name, sample.label)
+        self.assertEqual(m.display, sample.label)
+        self.assertEqual(core.Match("Bg", sample.name).display, sample.name)
 
     def test_missing_context_is_skipped_not_error(self):
         # 只选一个上下文，不应因其它上下文缺失而报错

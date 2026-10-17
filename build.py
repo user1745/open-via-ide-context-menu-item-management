@@ -1,9 +1,11 @@
 #!/usr/bin/env python
 """PyInstaller 构建脚本。
 
-产出两个单文件 exe：
-    dist/通过IDE打开-菜单管理器.exe   图形界面（无控制台窗口）—— 双击即用
-    dist/ide-menu-cli.exe            命令行界面
+产出一个单文件 exe：
+    dist/通过IDE打开·右键菜单项管理（阿懂）.exe   图形界面（无控制台窗口）—— 双击即用
+
+> 早期版本还打包过 ``ide-menu-cli.exe``，现已按需求移除，源码里的 ``ide_menu.cli``
+> 仍保留，可通过 ``python -m ide_menu`` 使用。
 
 用法:
     python build.py            # 正常构建
@@ -13,6 +15,7 @@
 from __future__ import annotations
 
 import argparse
+import inspect
 import os
 import shutil
 import subprocess
@@ -21,10 +24,12 @@ import time
 
 ROOT = os.path.dirname(os.path.abspath(__file__))
 
+#: 应用名称（与 ide_menu.gui.APP_TITLE 保持一致），同时用作 exe 文件名
+APP_NAME = "通过IDE打开·右键菜单项管理（阿懂）"
+
 #: (入口脚本, 输出名, 是否无控制台)
 TARGETS: list[tuple[str, str, bool]] = [
-    ("entry_gui.py", "通过IDE打开-菜单管理器", True),
-    ("entry_cli.py", "ide-menu-cli", False),
+    ("entry_gui.py", APP_NAME, True),
 ]
 
 COMMON_ARGS = [
@@ -61,6 +66,59 @@ def run(cmd: list[str]) -> None:
         raise SystemExit(f"构建失败（退出码 {r.returncode}）")
 
 
+def _rmtree_capture(path: str) -> list[str]:
+    """删除目录，返回删除失败的条目。
+
+    之前用的是 ``shutil.rmtree(..., ignore_errors=True)``：如果 dist 里的 exe
+    还在运行，删除会静默失败，旧产物就和新产物混在同一个 dist 里。所以这里
+    收集失败项并交给调用方报错。
+    """
+    failed: list[str] = []
+    if not os.path.isdir(path):
+        return failed
+    print(f"删除 {os.path.basename(path)}/ ...")
+
+    def _handler(func, p, exc):
+        detail = exc[1] if isinstance(exc, tuple) else exc
+        failed.append(f"{p}  ({detail})")
+
+    if "onexc" in inspect.signature(shutil.rmtree).parameters:  # Python >= 3.12
+        shutil.rmtree(path, onexc=lambda f, p, e: _handler(f, p, (None, e, None)))
+    else:  # pragma: no cover - Python 3.10 / 3.11
+        shutil.rmtree(path, onerror=_handler)
+    if os.path.isdir(path):
+        failed.append(f"{path}  (目录仍然存在)")
+    return failed
+
+
+def _warn_running_in_dist() -> None:
+    """如果 dist 里的 exe 正在运行，先提醒用户——否则清理一定不完整。"""
+    dist = os.path.join(ROOT, "dist")
+    if not os.path.isdir(dist):
+        return
+    names = {
+        os.path.splitext(f)[0].lower()
+        for f in os.listdir(dist)
+        if f.lower().endswith(".exe")
+    }
+    if not names:
+        return
+    try:
+        out = subprocess.run(
+            ["tasklist", "/fo", "csv", "/nh"],
+            capture_output=True, text=True, errors="replace", timeout=20,
+        ).stdout
+    except Exception:
+        return
+    for line in out.splitlines():
+        parts = [p.strip('" ') for p in line.split('","')]
+        if len(parts) < 2:
+            continue
+        image, pid = parts[0], parts[1]
+        if os.path.splitext(os.path.basename(image))[0].lower() in names:
+            print(f"  ! 正在运行: {image}  (pid {pid})  —— 会占用 dist，导致清理不完整")
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description="构建 exe")
     ap.add_argument("--clean", action="store_true", help="构建前删除 build/ 与 dist/")
@@ -70,15 +128,24 @@ def main() -> int:
     print(f"使用 Python: {py}\n")
 
     if args.clean:
+        _warn_running_in_dist()
+        failures: list[str] = []
         for d in ("build", "dist"):
-            p = os.path.join(ROOT, d)
-            if os.path.isdir(p):
-                print(f"删除 {d}/ ...")
-                shutil.rmtree(p, ignore_errors=True)
+            failures += _rmtree_capture(os.path.join(ROOT, d))
         for f in os.listdir(ROOT):
             if f.endswith(".spec"):
-                os.remove(os.path.join(ROOT, f))
-                print(f"删除 {f}")
+                try:
+                    os.remove(os.path.join(ROOT, f))
+                    print(f"删除 {f}")
+                except OSError as exc:
+                    failures.append(f"{f}  ({exc})")
+        if failures:
+            print("\n清理不完整，以下文件没能删除（通常是被正在运行的 exe 占用）：", file=sys.stderr)
+            for f in failures:
+                print(f"  - {f}", file=sys.stderr)
+            print(f"\n请先关闭“{APP_NAME}”，再重新构建。", file=sys.stderr)
+            return 2
+        print("清理完成。\n")
 
     os.chdir(ROOT)
     for entry, name, windowed in TARGETS:

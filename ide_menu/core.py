@@ -123,10 +123,19 @@ class MenuItem:
 
 @dataclass(frozen=True)
 class Match:
-    """一次命中：哪个上下文下的哪一项。"""
+    """一次命中：哪个上下文下的哪一项。
+
+    ``name`` 是注册表子键名（真正删除时用的），``label`` 是用户可见的全称。
+    """
 
     context: str
     name: str
+    label: str = ""
+
+    @property
+    def display(self) -> str:
+        """日志/界面展示用：优先全称，没有则退回子键名。"""
+        return self.label or self.name
 
 
 @dataclass(frozen=True)
@@ -338,15 +347,14 @@ def parent_verbs(contexts: Sequence[str] | None = None) -> list[ParentVerb]:
 def select_matches(
     patterns: Sequence[str],
     contexts: Sequence[str] | None = None,
-    *,
-    match_verb_text: bool = False,
 ) -> list[Match]:
     """
-    按模式匹配子菜单项。
+    按子菜单项的**完整显示名**（MUIVerb，如「通过 Code 打开」）匹配。
 
-    * 主匹配对象是注册表子键名（不区分大小写，支持 ``*`` / ``?`` 通配符）。
-    * ``match_verb_text=True`` 时额外匹配显示文本（MUIVerb）的子串，
-      例如用 ``TRAE CN`` 命中子键 ``TRAE SOLO CN``。
+    * 模式针对显示名做 fnmatch，不区分大小写，支持 ``*`` / ``?`` 通配符。
+    * **必须输入全称**：只写应用名（如 ``Code``）不会命中，
+      因为那是注册表子键名，不是用户在右键菜单里看到的文字。
+    * 某个模式下在一个上下文内命中一次即算命中。
     """
     ctxs = _norm_contexts(contexts)
     items = get_items(ctxs)
@@ -354,11 +362,8 @@ def select_matches(
     for ctx in ctxs:
         for it in (i for i in items if i.context == ctx):
             for p in patterns:
-                if fnmatch.fnmatchcase(it.name.lower(), p.lower()):
-                    hits.append(Match(ctx, it.name))
-                    break
-                if match_verb_text and it.label and p.lower() in it.label.lower():
-                    hits.append(Match(ctx, it.name))
+                if fnmatch.fnmatchcase(it.label.lower(), p.lower()):
+                    hits.append(Match(ctx, it.name, it.label))
                     break
     return hits
 

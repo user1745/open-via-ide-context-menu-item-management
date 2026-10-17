@@ -12,7 +12,8 @@ USAGE = """\
 用法:
   python -m ide_menu              启动图形界面
   python -m ide_menu --list       列出三处当前的子菜单项
-  python -m ide_menu -n Code      删除子菜单项（其余参数同 ide-menu 命令）
+  python -m ide_menu -n '通过 Code 打开'
+                                  删除子菜单项（必须输入全称，其余参数见 --help）
   python -m ide_menu --help       查看命令行帮助
 """
 
@@ -20,7 +21,7 @@ USAGE = """\
 def main(argv: Sequence[str] | None = None) -> int:
     args = list(sys.argv[1:] if argv is None else argv)
     cli_flags = {
-        "-l", "--list", "-n", "--name", "-c", "--context", "-m", "--match-verb-text",
+        "-l", "--list", "-n", "--name", "-c", "--context",
         "-p", "--prune-empty", "-b", "--no-backup", "-B", "--backup-dir",
         "--dry-run", "-y", "--yes", "--restart", "--open-backups", "--json",
         "-h", "--help", "--version",
