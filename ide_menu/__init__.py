@@ -6,5 +6,5 @@
     gui   图形界面（tkinter）
 """
 
-__version__ = "1.4.0"
+__version__ = "1.5.0"
 __all__ = ["core", "cli", "gui"]

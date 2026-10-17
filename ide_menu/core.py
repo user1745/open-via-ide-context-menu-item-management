@@ -34,6 +34,7 @@ from __future__ import annotations
 import contextlib
 import datetime as _dt
 import fnmatch
+import functools
 import os
 import re
 import shutil
@@ -41,7 +42,7 @@ import subprocess
 import sys
 import time
 from dataclasses import dataclass
-from typing import Iterator, Sequence
+from typing import Iterable, Iterator, Sequence
 
 import winreg
 
@@ -58,6 +59,9 @@ __all__ = [
     "HIVES",
     "PLACEHOLDER",
     "get_items",
+    "sort_items",
+    "app_name_of",
+    "compare_names",
     "select_matches",
     "add_items",
     "is_admin",
@@ -126,6 +130,10 @@ LABEL_ASCII: dict[str, str] = {
     "Bg": r"BG       (Directory\Background\shell)",
 }
 
+#: 菜单项文本的固定格式：「通过 （应用名） 打开」
+LABEL_PREFIX = "通过 "
+LABEL_SUFFIX = " 打开"
+
 # 显式指定 64 位视图，避免 32 位进程被 WOW64 重定向
 _WOW64 = getattr(winreg, "KEY_WOW64_64KEY", 0)
 _R = winreg.KEY_READ | _WOW64
@@ -167,6 +175,11 @@ class MenuItem:
         if not self.label:
             return ""
         return "".join(c if ord(c) < 127 else f"\\u{ord(c):04X}" for c in self.label)
+
+    @property
+    def app_name(self) -> str:
+        """菜单项对应的应用名（「通过 Code 打开」→ ``Code``）。排序用。"""
+        return app_name_of(self.label, self.name)
 
 
 @dataclass(frozen=True)
@@ -350,6 +363,95 @@ def escape_non_ascii(text: str) -> str:
 
 
 # --------------------------------------------------------------------------
+# 排序（按应用名首字母）
+# --------------------------------------------------------------------------
+
+_CMP_STRING_EX: object | None = None
+_CMP_TRIED = False
+
+
+def _win_compare(a: str, b: str) -> int | None:
+    """用 Windows 的区域设置比较两段文本；不可用时返回 None。
+
+    ``CompareStringEx`` 走 NLS，第一个参数传 ``None`` 表示
+    ``LOCALE_NAME_USER_DEFAULT``（跟随用户的区域设置）。实测在本机
+    （zh-CN）上的效果是：**英文名先按字母序排在一起，中文名再按拼音排**
+    ——例如 ``Antigravity, apple, Code, Cursor, zebra, 阿里, 百度, 钉钉,
+    微信, 字节跳动``。这正是中文用户期待的「按首字母」效果。
+
+    注意：不要试图给区域名加 ``@collation=pinyin`` 关键字——本机实测
+    ``CompareStringEx('zh-CN@collation=pinyin', ...)`` 直接返回错误
+    （0 / ERROR_INVALID_PARAMETER），该关键字在此系统不受支持。
+    默认区域设置本身就已经是拼音序了。
+
+    ``NORM_IGNORECASE`` 下 NLS 仍把大小写作为次级排序键（a < A < b < B），
+    这让 ``Ant`` 排在 ``apple`` 之前，符合「按首字母」的字面含义。
+
+    返回值已归一化为 -1/0/1。
+    """
+    global _CMP_STRING_EX, _CMP_TRIED
+    if not _CMP_TRIED:
+        _CMP_TRIED = True
+        try:
+            import ctypes
+
+            fn = ctypes.windll.kernel32.CompareStringEx
+            fn.argtypes = [
+                ctypes.c_wchar_p, ctypes.c_uint,
+                ctypes.c_wchar_p, ctypes.c_int,
+                ctypes.c_wchar_p, ctypes.c_int,
+                ctypes.c_void_p, ctypes.c_void_p, ctypes.c_void_p,
+            ]
+            fn.restype = ctypes.c_int
+            _CMP_STRING_EX = fn
+        except Exception:  # noqa: BLE001 - 非 Windows 或符号缺失
+            _CMP_STRING_EX = None
+    if _CMP_STRING_EX is None:
+        return None
+    try:
+        NORM_IGNORECASE = 0x00000001
+        r = _CMP_STRING_EX(None, NORM_IGNORECASE, a, len(a), b, len(b), None, None, None)
+    except Exception:  # noqa: BLE001
+        return None
+    if r <= 0:          # 0 表示出错；1/2/3 = 小于/等于/大于
+        return None
+    return r - 2
+
+
+def compare_names(a: str, b: str) -> int:
+    """比较两个应用名：优先系统区域设置，失败退回 casefold 码位序。"""
+    if a == b:
+        return 0
+    r = _win_compare(a, b)
+    if r is not None:
+        return r
+    fa, fb = a.casefold(), b.casefold()
+    return (fa > fb) - (fa < fb)
+
+
+def app_name_of(label: str, fallback: str = "") -> str:
+    """从菜单项文本反推应用名：``通过 Code 打开`` → ``Code``。
+
+    文本不符合该格式时返回 ``fallback``（通常传注册表子键名）。
+    """
+    s = (label or "").strip()
+    if s.startswith(LABEL_PREFIX):
+        s = s[len(LABEL_PREFIX):]
+    if s.endswith(LABEL_SUFFIX):
+        s = s[: -len(LABEL_SUFFIX)]
+    return _clean_name(s) or fallback
+
+
+def sort_items(items: Iterable["MenuItem"]) -> list["MenuItem"]:
+    """按应用名排序；同名的再按注册表子键名，保证顺序稳定可预期。"""
+    def _cmp(a: "MenuItem", b: "MenuItem") -> int:
+        r = compare_names(app_name_of(a.label, a.name), app_name_of(b.label, b.name))
+        return r if r else ((a.name > b.name) - (a.name < b.name))
+
+    return sorted(items, key=functools.cmp_to_key(_cmp))
+
+
+# --------------------------------------------------------------------------
 # 读取
 # --------------------------------------------------------------------------
 
@@ -376,6 +478,9 @@ def get_items(contexts: Sequence[str] | None = None) -> list[MenuItem]:
 
     返回的是 **HKCR 合并视图**：``HKLM`` 与 ``HKCU`` 的子键并集，
     值冲突时以 HKLM 为准（与系统解析顺序一致）。
+
+    返回列表已按**应用名首字母**排序（见 :func:`sort_items`），
+    三个上下文各自独立排序，所以界面上的刷新/添加/删除后顺序都是稳定的。
     """
     ctxs = _norm_contexts(contexts)
     items: list[MenuItem] = []
@@ -414,7 +519,7 @@ def get_items(contexts: Sequence[str] | None = None) -> list[MenuItem]:
                 MenuItem(context=ctx, name=name, label=label,
                          command=command, icon=icon, hives=present)
             )
-    return items
+    return sort_items(items)
 
 
 def parent_verbs(contexts: Sequence[str] | None = None) -> list[ParentVerb]:
@@ -715,7 +820,7 @@ def exe_icon_path(path: str) -> str:
 
 def make_label(app_name: str) -> str:
     """菜单项文本，统一格式：通过 （应用名） 打开。"""
-    return f"通过 {_clean_name(app_name)} 打开"
+    return f"{LABEL_PREFIX}{_clean_name(app_name)}{LABEL_SUFFIX}"
 
 
 def _unique_subkey(hive: str, ctx: str, base: str) -> str:
