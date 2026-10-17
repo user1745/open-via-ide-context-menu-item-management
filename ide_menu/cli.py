@@ -114,7 +114,7 @@ def _print_state(ctxs: Sequence[str], as_json: bool) -> None:
             print("    <无子菜单项>")
             continue
         for i in rows:
-            print(f"    {i.label_escaped}   [{i.name}]")
+            print(f"    {i.label_escaped}   [{i.name}]  ({'+'.join(i.hives) or '-'})")
         print()
 
 
@@ -169,7 +169,11 @@ def main(argv: Sequence[str] | None = None) -> int:
             print(
                 json.dumps(
                     {
-                        "planned": [{"context": m.context, "name": m.name} for m in plan],
+                        "planned": [
+                            {"context": m.context, "name": m.name,
+                             "label": m.display, "hives": list(m.hives)}
+                            for m in plan
+                        ],
                         "removed": [],
                     },
                     ensure_ascii=False,
@@ -199,6 +203,13 @@ def main(argv: Sequence[str] | None = None) -> int:
         print("-" * 46)
         for line in log:
             print(f"  {line}")
+
+        denied = sum(1 for line in log if line.startswith("NEEDADMIN"))
+        if denied:
+            print(
+                f"\n注意：有 {denied} 处位于 HKLM，普通权限无法删除。\n"
+                "      请以管理员身份运行本程序后再试。"
+            )
 
         if args.restart:
             print("\n正在重启资源管理器 ...")

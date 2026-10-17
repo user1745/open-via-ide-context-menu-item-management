@@ -25,7 +25,7 @@ import time
 ROOT = os.path.dirname(os.path.abspath(__file__))
 
 #: 应用名称（与 ide_menu.gui.APP_TITLE 保持一致），同时用作 exe 文件名
-APP_NAME = "通过IDE打开·右键菜单项管理（阿懂）"
+APP_NAME = "通过IDE打开·右键菜单项管理 (阿董)"
 
 #: (入口脚本, 输出名, 是否无控制台)
 TARGETS: list[tuple[str, str, bool]] = [

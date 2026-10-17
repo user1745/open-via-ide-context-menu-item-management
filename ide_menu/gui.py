@@ -1,4 +1,4 @@
-"""图形界面（tkinter）：通过IDE打开·右键菜单项管理。"""
+"""图形界面（tkinter）：通过IDE打开·右键菜单项管理 (阿董)。"""
 
 from __future__ import annotations
 
@@ -11,8 +11,8 @@ from typing import Sequence
 
 from . import core
 
-#: 应用名称，同时用作窗口标题。
-APP_TITLE = "通过IDE打开·右键菜单项管理（阿懂）"
+#: 应用名称，同时用作窗口标题栏文字。
+APP_TITLE = "通过IDE打开·右键菜单项管理 (阿董)"
 
 HINT_TEXT = (
     "请输入子菜单项的完整名称，例如「通过 Code 打开」「通过 OpenCode 打开」；"
@@ -65,7 +65,6 @@ class App:
         base = ("Microsoft YaHei UI", 10)
         self.root.option_add("*Font", base)
         st.configure(".", font=base)
-        st.configure("Title.TLabel", font=("Microsoft YaHei UI", 15, "bold"))
         st.configure("Hint.TLabel", foreground=COL_MUTED, font=("Microsoft YaHei UI", 9))
         st.configure("GroupTitle.TLabelframe.Label", font=("Microsoft YaHei UI", 10, "bold"))
         st.configure("Status.TLabel", foreground=COL_MUTED, font=("Microsoft YaHei UI", 9))
@@ -80,18 +79,18 @@ class App:
     def _layout(self) -> None:
         r = self.root
         r.columnconfigure(0, weight=1)
-        r.rowconfigure(7, weight=3)   # 三个列表
-        r.rowconfigure(9, weight=2)   # 日志
+        r.rowconfigure(6, weight=3)   # 三个列表
+        r.rowconfigure(8, weight=2)   # 日志
 
         pad = 10
-        ttk.Label(r, text=APP_TITLE, style="Title.TLabel").grid(
+        # NOTE: 窗口顶部不再放应用大标题，标题只保留在标题栏（APP_TITLE）。
+
+        ttk.Label(r, text="要删除的子菜单项全称").grid(
             row=0, column=0, sticky="w", padx=pad, pady=(pad, 2)
         )
 
-        ttk.Label(r, text="要删除的子菜单项全称").grid(row=1, column=0, sticky="w", padx=pad, pady=(8, 2))
-
         entry_row = ttk.Frame(r)
-        entry_row.grid(row=2, column=0, sticky="ew", padx=pad)
+        entry_row.grid(row=1, column=0, sticky="ew", padx=pad)
         entry_row.columnconfigure(0, weight=1)
         self.cmb = ttk.Combobox(entry_row, textvariable=self.var_name, font=("Microsoft YaHei UI", 10))
         self.cmb.grid(row=0, column=0, sticky="ew")
@@ -101,11 +100,11 @@ class App:
         ttk.Button(entry_row, text="清除输入", command=self.clear_input).grid(row=0, column=2, padx=(6, 0))
 
         ttk.Label(r, text=HINT_TEXT, style="Hint.TLabel", wraplength=900, justify="left").grid(
-            row=3, column=0, sticky="w", padx=pad, pady=(3, 0)
+            row=2, column=0, sticky="w", padx=pad, pady=(3, 0)
         )
 
         opts = ttk.Frame(r)
-        opts.grid(row=4, column=0, sticky="w", padx=pad, pady=(8, 0))
+        opts.grid(row=3, column=0, sticky="w", padx=pad, pady=(8, 0))
         for i, ctx in enumerate(core.CONTEXT_IDS):
             ttk.Checkbutton(opts, text=core.LABEL[ctx].split("（")[0], variable=self.var_ctx[ctx]).grid(
                 row=0, column=i, sticky="w", padx=(0, 14)
@@ -115,7 +114,7 @@ class App:
         )
 
         acts = ttk.Frame(r)
-        acts.grid(row=5, column=0, sticky="ew", padx=pad, pady=(10, 0))
+        acts.grid(row=4, column=0, sticky="ew", padx=pad, pady=(10, 0))
         acts.columnconfigure(5, weight=1)
         ttk.Button(acts, text="预 览", command=self.preview).grid(row=0, column=0)
         ttk.Button(acts, text="删 除", style="Danger.TButton", command=self.delete).grid(row=0, column=1, padx=8)
@@ -123,12 +122,12 @@ class App:
         ttk.Button(acts, text="重启资源管理器", command=self.restart_explorer).grid(row=0, column=3, padx=8)
         ttk.Button(acts, text="备份目录", command=self.open_backups).grid(row=0, column=4)
 
-        ttk.Label(r, text="当前子菜单项（各上下文实际内容，不做交集；双击可填入名称）").grid(
-            row=6, column=0, sticky="w", padx=pad, pady=(12, 2)
+        ttk.Label(r, text="当前子菜单项：双击可填入名称)").grid(
+            row=5, column=0, sticky="w", padx=pad, pady=(12, 2)
         )
 
         self.ctx_frame = ttk.Frame(r)
-        self.ctx_frame.grid(row=7, column=0, sticky="nsew", padx=pad)
+        self.ctx_frame.grid(row=6, column=0, sticky="nsew", padx=pad)
         for i in range(len(core.CONTEXT_IDS)):
             # tkinter 等宽三列的正确写法：每列都要 weight + 相同的 uniform
             self.ctx_frame.columnconfigure(i, weight=1, uniform="ctx")
@@ -144,18 +143,19 @@ class App:
 
         # 日志标题行：左侧标题，右侧「清空日志」按钮
         log_head = ttk.Frame(r)
-        log_head.grid(row=8, column=0, sticky="ew", padx=pad, pady=(12, 2))
+        log_head.grid(row=7, column=0, sticky="ew", padx=pad, pady=(12, 2))
         log_head.columnconfigure(1, weight=1)
         ttk.Label(log_head, text="日志").grid(row=0, column=0, sticky="w")
         ttk.Button(log_head, text="清空日志", command=self.clear_log).grid(row=0, column=2, sticky="e")
 
         self.log_box = ScrolledText(
-            r, height=9, state="disabled", wrap="word", font=("Consolas", 9), relief="solid", borderwidth=1
+            r, height=10, state="disabled", wrap="word",
+            font=("Microsoft YaHei UI", 9), relief="solid", borderwidth=1
         )
-        self.log_box.grid(row=9, column=0, sticky="nsew", padx=pad)
+        self.log_box.grid(row=8, column=0, sticky="nsew", padx=pad)
 
         status = ttk.Frame(r)
-        status.grid(row=11, column=0, sticky="ew", padx=pad, pady=(6, 0))
+        status.grid(row=9, column=0, sticky="ew", padx=pad, pady=(6, 0))
         status.columnconfigure(0, weight=1)
         ttk.Label(status, textvariable=self.var_status, style="Status.TLabel").grid(row=0, column=0, sticky="w")
         ttk.Label(status, text=core.DEFAULT_BACKUP_DIR, style="Status.TLabel").grid(row=0, column=1, sticky="e")
@@ -204,16 +204,23 @@ class App:
         """勾选的上下文 —— 只影响删除范围，不影响下方列表显示。"""
         return [c for c in core.CONTEXT_IDS if self.var_ctx[c].get()]
 
-    def log(self, text: str, color: str | None = None) -> None:
-        self.log_box.configure(state="normal")
+    def log(self, text: str = "", color: str | None = None) -> None:
+        """
+        追加一条日志：一次调用独占自己的若干行，行尾统一补换行。
+
+        这样多条日志不会挤在同一行，缩进和空行也能稳定对齐。
+        """
+        box = self.log_box
+        box.configure(state="normal")
+        tag = "plain"
         if color:
-            self.log_box.tag_add("color", "end", "end")
-            self.log_box.tag_config("color", foreground=color)
-            self.log_box.insert("end", text, "color")
-        else:
-            self.log_box.insert("end", text)
-        self.log_box.see("end")
-        self.log_box.configure(state="disabled")
+            tag = "c" + color.lstrip("#")
+            box.tag_config(tag, foreground=color)
+        body = "" if text is None else str(text)
+        for line in body.split("\n"):
+            box.insert("end", line.rstrip() + "\n", tag)
+        box.see("end")
+        box.configure(state="disabled")
 
     def _banner(self, title: str) -> None:
         self.log("")
@@ -223,8 +230,9 @@ class App:
         return core.split_names(self.var_name.get())
 
     def refresh(self, initial: bool = False) -> None:
-        # 始终读取全部三个上下文：每个框只显示自己那一份的真实内容，
-        # 不做交集，也不因为取消勾选而变空。
+        # 始终读取全部三个上下文：每个框只显示自己那一份的真实内容
+        # （HKCR 合并视图 = HKLM 与 HKCU 的并集），不做交集，
+        # 也不因为取消勾选而变空。
         try:
             items = core.get_items(core.CONTEXT_IDS)
         except Exception as exc:  # noqa: BLE001
@@ -254,10 +262,12 @@ class App:
             self._banner("就绪")
             self.log(HINT_TEXT, COL_MUTED)
             for ctx in core.CONTEXT_IDS:
-                self.log(f"  {core.LABEL[ctx]}：{len(self._labels[ctx])} 项", COL_MUTED)
+                n = len(self._labels[ctx])
+                self.log(f"  {core.LABEL[ctx]} : {n} 项", COL_MUTED)
             for v in core.parent_verbs():
                 state = "OK" if v.wired else "!! 未接线"
                 self.log(f"  {core.LABEL_ASCII[v.context]} -> {v.target or '<无>'}  [{state}]")
+            self.log("  列表内容为 HKCR 合并视图：HKLM 与 HKCU 的子项并集。", COL_MUTED)
 
     def _suggest(self) -> str:
         """没命中时，提示可用的完整名称（去重）。"""
@@ -285,7 +295,9 @@ class App:
         for ctx in ctxs:
             rows = [m.display for m in plan if m.context == ctx]
             if rows:
-                self.log(f"  [命中] {core.LABEL_ASCII[ctx]} : {', '.join(rows)}", COL_OK)
+                self.log(f"  [命中] {core.LABEL_ASCII[ctx]}", COL_OK)
+                for t in rows:
+                    self.log(f"      - {t}", COL_OK)
             else:
                 self.log(f"  [跳过] {core.LABEL_ASCII[ctx]} : 无此项", COL_WARN)
         if not plan:
@@ -320,10 +332,12 @@ class App:
 
         lines = ["即将删除以下子菜单项：", ""]
         for ctx in ctxs:
-            rows = [m.display for m in plan if m.context == ctx]
+            rows = [m for m in plan if m.context == ctx]
             if rows:
                 lines.append(f"  {core.LABEL[ctx]}")
-                lines.extend(f"      - {t}" for t in rows)
+                for m in rows:
+                    where = "+".join(m.hives) or "HKCU"
+                    lines.append(f"      - {m.display}    [{where}]")
         if self.var_prune.get():
             lines += ["", "并会删除因此变空的父菜单项。"]
         lines += ["", "删除前会自动导出 .reg 备份。", "确定继续吗？"]
@@ -337,13 +351,29 @@ class App:
             messagebox.showerror("删除失败", str(exc))
             return
 
+        denied = 0
         for line in log:
-            color = COL_OK if line.startswith("REMOVED") else (COL_MUTED if line.startswith("BACKUP") else COL_WARN)
+            if line.startswith("REMOVED"):
+                color = COL_OK
+            elif line.startswith("BACKUP"):
+                color = COL_MUTED
+            elif line.startswith("NEEDADMIN"):
+                color = COL_WARN
+                denied += 1
+            else:
+                color = COL_WARN
             self.log(f"  {line}", color)
 
         self.refresh()
-        if messagebox.askyesno("立即生效", "是否现在重启资源管理器（explorer.exe）使菜单更新？\n所有已打开的文件夹窗口会关闭。"):
-            self.restart_explorer(ask=False)
+        # NOTE: 删除后不再自动重启资源管理器；需要时点「重启资源管理器」按钮。
+        self.log("完成。菜单将在重启资源管理器后更新。", COL_INFO)
+        if denied:
+            messagebox.showwarning(
+                "部分项目需要管理员权限",
+                f"有 {denied} 处位于 HKLM，普通权限无法删除。\n\n"
+                "请以管理员身份运行本程序后再试，\n"
+                "或手动删除 HKLM\\Software\\Classes 下的对应子项。",
+            )
 
     def restart_explorer(self, ask: bool = True) -> None:
         if ask and not messagebox.askyesno("重启资源管理器", "所有已打开的文件夹窗口会被关闭，确定继续？"):
@@ -400,6 +430,8 @@ def self_test(root: tk.Tk, app: App) -> int:
     print(f"requested  : {root.winfo_reqwidth()} x {root.winfo_reqheight()}")
     print(f"screen     : {root.winfo_screenwidth()} x {root.winfo_screenheight()}")
 
+    items = core.get_items(core.CONTEXT_IDS)
+    total = len(items)
     ox = root.winfo_rootx()
     for ctx in core.CONTEXT_IDS:
         lb = app.listboxes[ctx]
@@ -412,19 +444,21 @@ def self_test(root: tk.Tk, app: App) -> int:
     print(f"combobox   : {app.cmb.winfo_width()} x {app.cmb.winfo_height()} "
           f"values={[core.escape_non_ascii(v) for v in app.cmb.cget('values')]}")
 
-    # 匹配规则自检：全称命中、应用名不命中、通配符命中
-    probe = [
-        (["通过 Code 打开"], 3),
-        (["Code"], 0),
-        (["通过 * 打开"], 3 * 4),
-    ]
-    for pats, expect in probe:
+    # 匹配规则自检：全称命中、应用名不命中、通配符命中（期望值由注册表实况推导）
+    all_labels = [i.label for i in items if i.label]
+    first = all_labels[0] if all_labels else ""
+    subkey_names = {i.name for i in items}
+    probes = [(first or "?", None), (sorted(subkey_names)[0] if subkey_names else "?", 0),
+              ("\u901a\u8fc7 * \u6253\u5f00", total)]
+    for pats, expect in probes:
         try:
-            n = len(core.select_matches(pats, core.CONTEXT_IDS))
+            n = len(core.select_matches([pats], core.CONTEXT_IDS))
         except Exception as exc:  # noqa: BLE001
             n = f"ERR {exc}"
+        if expect is None:      # 该全称出现在几个上下文里
+            expect = len({i.context for i in items if i.label == pats})
         ok = "OK " if n == expect else "BAD"
-        print(f"match {ok}  {[core.escape_non_ascii(p) for p in pats]} -> {n} (expect {expect})")
+        print(f"match {ok}  {[core.escape_non_ascii(pats)]} -> {n} (expect {expect})")
 
     print(f"status     : {app.var_status.get()}")
     print("checkboxes : "
