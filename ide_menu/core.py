@@ -55,8 +55,15 @@ __all__ = [
     "PARENT_KEY",
     "LABEL",
     "HIVES",
+    "PLACEHOLDER",
     "get_items",
     "select_matches",
+    "add_items",
+    "app_name_from_path",
+    "app_name_from_version_info",
+    "exe_icon_path",
+    "make_label",
+    "sanitize_key_name",
     "split_names",
     "backup_leaf",
     "remove_items",
@@ -601,6 +608,214 @@ def remove_items(
                         log.append(f"NEEDADMIN {LABEL_ASCII[ctx]} : 删除父菜单失败 [{hive}] ({exc})")
                     except OSError as exc:
                         log.append(f"SKIP    {LABEL_ASCII[ctx]} : 删除父菜单失败 [{hive}] ({exc})")
+    return log
+
+
+# --------------------------------------------------------------------------
+# 添加（把一个 exe 加进三个「通过 IDE 打开」菜单）
+# --------------------------------------------------------------------------
+
+#: 每个上下文命令行应该用哪个占位符（%1 = 选中项，%V = 当前文件夹）
+PLACEHOLDER: dict[str, str] = {"File": "%1", "Dir": "%1", "Bg": "%V"}
+
+#: 注册表子键名里不允许出现的字符
+_BAD_KEY_CHARS = re.compile(r'[\\/\x00-\x1f:*?"<>|]')
+
+
+def _create_child(parent: int, name: str) -> int:
+    return winreg.CreateKey(parent, name)
+
+
+def _clean_name(s: str) -> str:
+    s = re.sub(r"[\x00-\x1f\x7f]+", " ", s)
+    return re.sub(r"\s{2,}", " ", s).strip(" .-_")
+
+
+def sanitize_key_name(name: str) -> str:
+    """把应用名转成合法的注册表子键名。"""
+    return _BAD_KEY_CHARS.sub("_", name).strip().strip(".") or "App"
+
+
+def app_name_from_path(path: str) -> str:
+    """默认应用名 = 去掉扩展名的文件名。
+
+    这与现有条目一致（``Code.exe`` → Code、``Cursor.exe`` → Cursor、
+    ``Trae CN.exe`` → TRAE CN），所以新增条目的风格不会和已有条目打架。
+    """
+    return os.path.splitext(os.path.basename(path))[0].strip() or "App"
+
+
+def app_name_from_version_info(path: str) -> str:
+    """从 exe 的版本信息里取友好名称（ProductName → FileDescription → InternalName）。
+
+    有些程序的文件名并不等于应用名（``clion64.exe`` 的 ProductName 是 ``CLion``），
+    这时用版本信息里的名字更合适。读不到就返回空串。
+    """
+    try:
+        import ctypes
+        from ctypes import wintypes
+
+        ver = ctypes.WinDLL("version", use_last_error=True)
+        ver.GetFileVersionInfoSizeW.argtypes = [wintypes.LPCWSTR, ctypes.POINTER(wintypes.DWORD)]
+        ver.GetFileVersionInfoSizeW.restype = wintypes.DWORD
+        ver.GetFileVersionInfoW.argtypes = [
+            wintypes.LPCWSTR, wintypes.DWORD, wintypes.DWORD, ctypes.c_void_p,
+        ]
+        ver.GetFileVersionInfoW.restype = wintypes.BOOL
+        ver.VerQueryValueW.argtypes = [
+            ctypes.c_void_p, wintypes.LPCWSTR,
+            ctypes.POINTER(ctypes.c_void_p), ctypes.POINTER(wintypes.DWORD),
+        ]
+        ver.VerQueryValueW.restype = wintypes.BOOL
+
+        def raw(block, key: str) -> bytes | None:
+            out, n = ctypes.c_void_p(), wintypes.DWORD()
+            if ver.VerQueryValueW(ctypes.cast(block, ctypes.c_void_p), key,
+                                  ctypes.byref(out), ctypes.byref(n)):
+                return ctypes.string_at(out, n.value)
+            return None
+
+        def text(block, key: str) -> str:
+            out, n = ctypes.c_void_p(), wintypes.DWORD()
+            if ver.VerQueryValueW(ctypes.cast(block, ctypes.c_void_p), key,
+                                  ctypes.byref(out), ctypes.byref(n)):
+                # NOTE: 字符串是 UTF-16LE，但 puLen 返回的是**字符**个数
+                # （含结尾的 NUL），所以这里不能再除以 2。
+                return ctypes.wstring_at(out, n.value).split("\x00")[0].strip()
+            return ""
+
+        size = ver.GetFileVersionInfoSizeW(path, None)
+        if not size:
+            return ""
+        block = ctypes.create_string_buffer(size)
+        if not ver.GetFileVersionInfoW(path, 0, size, block):
+            return ""
+        tr = raw(block, r"\VarFileInfo\Translation")
+        if not tr or len(tr) < 4:
+            return ""
+        lang = int.from_bytes(tr[0:2], "little")
+        cp = int.from_bytes(tr[2:4], "little")
+        for field in ("ProductName", "FileDescription", "InternalName"):
+            v = _clean_name(text(block, rf"\StringFileInfo\{lang:04x}{cp:04x}\{field}"))
+            if v:
+                return v
+    except Exception:  # noqa: BLE001 - 版本信息不可读不是致命错误
+        return ""
+    return ""
+
+
+def exe_icon_path(path: str) -> str:
+    """右键菜单里显示的图标 = exe 自带的第一个图标资源。"""
+    return f"{os.path.abspath(path)},0"
+
+
+def make_label(app_name: str) -> str:
+    """菜单项文本，统一格式：通过 （应用名） 打开。"""
+    return f"通过 {_clean_name(app_name)} 打开"
+
+
+def _unique_subkey(hive: str, ctx: str, base: str) -> str:
+    """在该上下文的叶子键下找一个还没被占用的子键名。"""
+    try:
+        with _root(hive=hive) as root:
+            shell = _open_child(root, LEAF[ctx] + "\\shell")
+            existing = set(_subkeys(shell)) if shell is not None else set()
+    except AccessDenied_:
+        existing = set()
+    if base not in existing:
+        return base
+    for n in range(2, 1000):
+        cand = f"{base}_{n}"
+        if cand not in existing:
+            return cand
+    return f"{base}_{int(time.time())}"
+
+
+def add_items(
+    exe_path: str,
+    app_name: str | None = None,
+    contexts: Sequence[str] | None = None,
+    hive: str = "HKCU",
+    *,
+    backup: bool = True,
+    backup_dir: str | None = None,
+    stamp: str | None = None,
+) -> list[str]:
+    """
+    把一个 exe 加进「通过 IDE 打开」的子菜单项，返回操作日志行。
+
+    写入内容（每个上下文各一份）::
+
+        <hive>\\Software\\Classes\\OpenViaIDE_<Ctx>\\shell\\<子键>\\
+            MUIVerb = "通过 （应用名） 打开"
+            Icon    = "<exe 路径>,0"
+            command\\  "" = "<exe 路径>" "%1"      # 目录背景用 %V
+
+    日志前缀：``BACKUP`` / ``ADDED`` / ``SKIP`` / ``NEEDADMIN``。
+    """
+    ctxs = _norm_contexts(contexts)
+    if hive not in HIVES:
+        raise ValueError(f"未知注册表分支：{hive}（可选 {list(HIVES)}）")
+
+    exe = os.path.abspath(str(exe_path).strip().strip('"'))
+    if not os.path.isfile(exe):
+        raise ValueError(f"文件不存在：{exe}")
+
+    name = _clean_name(str(app_name).strip()) if app_name else ""
+    name = name or app_name_from_path(exe)
+    label = make_label(name)
+    icon = exe_icon_path(exe)
+    stamp = stamp or _dt.datetime.now().strftime("%Y%m%d-%H%M%S")
+
+    log: list[str] = []
+    if backup:
+        os.makedirs(backup_dir or DEFAULT_BACKUP_DIR, exist_ok=True)
+        for ctx in ctxs:
+            for p in backup_leaf(ctx, backup_dir, stamp, hives=(hive,)):
+                log.append(f"BACKUP  {LABEL_ASCII[ctx]} [{hive}] -> {p}")
+
+    # 已经存在的同名同命令项就不重复写了
+    existing = get_items(ctxs)
+    done: set[tuple[str, str]] = set()
+
+    for ctx in ctxs:
+        command = f'"{exe}" "{PLACEHOLDER[ctx]}"'
+        dup = next(
+            (i for i in existing
+             if i.context == ctx and (i.label or i.name) == label and i.command == command),
+            None,
+        )
+        if dup is not None:
+            log.append(f"SKIP    {LABEL_ASCII[ctx]} : '{label}' 已存在（{hive}）")
+            done.add((ctx, label))
+            continue
+
+        subkey = _unique_subkey(hive, ctx, sanitize_key_name(name))
+        try:
+            with _root(_RW, hive) as root:
+                shell = _open_child(root, LEAF[ctx] + "\\shell", _RW)
+                if shell is None:
+                    shell = _create_child(root, LEAF[ctx] + "\\shell")
+                try:
+                    k = _create_child(shell, subkey)
+                    try:
+                        winreg.SetValueEx(k, "MUIVerb", 0, winreg.REG_SZ, label)
+                        winreg.SetValueEx(k, "Icon", 0, winreg.REG_SZ, icon)
+                        c = _create_child(k, "command")
+                        try:
+                            winreg.SetValueEx(c, "", 0, winreg.REG_SZ, command)
+                        finally:
+                            winreg.CloseKey(c)
+                    finally:
+                        winreg.CloseKey(k)
+                finally:
+                    winreg.CloseKey(shell)
+        except (AccessDenied_, PermissionError, OSError) as exc:
+            log.append(f"NEEDADMIN {LABEL_ASCII[ctx]} : '{label}' — 写入 {hive} 失败 ({exc})")
+            continue
+        log.append(f"ADDED   {LABEL_ASCII[ctx]} : '{label}'  [{hive}\\{subkey}]")
+        done.add((ctx, label))
+
     return log
 
 

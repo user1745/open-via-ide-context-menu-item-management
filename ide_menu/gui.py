@@ -2,10 +2,11 @@
 
 from __future__ import annotations
 
+import os
 import sys
 import tkinter as tk
 import traceback
-from tkinter import messagebox, ttk
+from tkinter import filedialog, messagebox, ttk
 from tkinter.scrolledtext import ScrolledText
 from typing import Sequence
 
@@ -38,6 +39,10 @@ class App:
 
         self.var_name = tk.StringVar()
         self.var_prune = tk.BooleanVar(value=False)
+        # 「添加应用」页的状态
+        self.var_exe = tk.StringVar()
+        self.var_app = tk.StringVar()
+        self.var_hive = tk.StringVar(value="HKCU")
         self.var_ctx = {c: tk.BooleanVar(value=True) for c in core.CONTEXT_IDS}
         self.var_status = tk.StringVar(value="就绪")
         self.listboxes: dict[str, tk.Listbox] = {}
@@ -74,22 +79,62 @@ class App:
         st.map("Danger.TButton",
                background=[("pressed", "#8d1b1b"), ("active", "#a51f1f"), ("disabled", "#e0b4b4")],
                foreground=[("disabled", "#f2f2f2")])
+        st.configure("Primary.TButton", font=("Microsoft YaHei UI", 10, "bold"),
+                     background=COL_INFO, foreground="#ffffff",
+                     bordercolor=COL_INFO, focuscolor=COL_INFO)
+        st.map("Primary.TButton",
+               background=[("pressed", "#0d47a1"), ("active", "#1257a8"), ("disabled", "#b9cfe8")],
+               foreground=[("disabled", "#f2f2f2")])
 
     # ---------------------------------------------------------------- 布局
     def _layout(self) -> None:
         r = self.root
         r.columnconfigure(0, weight=1)
-        r.rowconfigure(6, weight=3)   # 三个列表
-        r.rowconfigure(8, weight=2)   # 日志
+        r.rowconfigure(0, weight=3)   # 功能区（两个分页）
+        r.rowconfigure(2, weight=2)   # 日志
 
         pad = 10
         # NOTE: 窗口顶部不再放应用大标题，标题只保留在标题栏（APP_TITLE）。
 
-        ttk.Label(r, text="要删除的子菜单项全称").grid(
+        # ---- 分页：删除 / 添加 ------------------------------------------
+        self.nb = ttk.Notebook(r)
+        self.nb.grid(row=0, column=0, sticky="nsew", padx=pad, pady=(pad, 0))
+        del_tab = ttk.Frame(self.nb, padding=2)
+        add_tab = ttk.Frame(self.nb, padding=10)
+        self.nb.add(del_tab, text="删除子菜单项")
+        self.nb.add(add_tab, text="添加应用")
+        self._layout_delete_tab(del_tab, pad)
+        self._layout_add_tab(add_tab, pad)
+
+        # 日志标题行：左侧标题，右侧「清空日志」按钮
+        log_head = ttk.Frame(r)
+        log_head.grid(row=1, column=0, sticky="ew", padx=pad, pady=(12, 2))
+        log_head.columnconfigure(1, weight=1)
+        ttk.Label(log_head, text="日志").grid(row=0, column=0, sticky="w")
+        ttk.Button(log_head, text="清空日志", command=self.clear_log).grid(row=0, column=2, sticky="e")
+
+        self.log_box = ScrolledText(
+            r, height=10, state="disabled", wrap="word",
+            font=("Microsoft YaHei UI", 9), relief="solid", borderwidth=1
+        )
+        self.log_box.grid(row=2, column=0, sticky="nsew", padx=pad)
+
+        status = ttk.Frame(r)
+        status.grid(row=3, column=0, sticky="ew", padx=pad, pady=(6, 0))
+        status.columnconfigure(0, weight=1)
+        ttk.Label(status, textvariable=self.var_status, style="Status.TLabel").grid(row=0, column=0, sticky="w")
+        ttk.Label(status, text=core.DEFAULT_BACKUP_DIR, style="Status.TLabel").grid(row=0, column=1, sticky="e")
+
+    # ---------------------------------------------------------------- 删除页
+    def _layout_delete_tab(self, d: ttk.Frame, pad: int) -> None:
+        d.columnconfigure(0, weight=1)
+        d.rowconfigure(6, weight=3)   # 三个列表
+
+        ttk.Label(d, text="要删除的子菜单项全称").grid(
             row=0, column=0, sticky="w", padx=pad, pady=(pad, 2)
         )
 
-        entry_row = ttk.Frame(r)
+        entry_row = ttk.Frame(d)
         entry_row.grid(row=1, column=0, sticky="ew", padx=pad)
         entry_row.columnconfigure(0, weight=1)
         self.cmb = ttk.Combobox(entry_row, textvariable=self.var_name, font=("Microsoft YaHei UI", 10))
@@ -99,11 +144,11 @@ class App:
         )
         ttk.Button(entry_row, text="清除输入", command=self.clear_input).grid(row=0, column=2, padx=(6, 0))
 
-        ttk.Label(r, text=HINT_TEXT, style="Hint.TLabel", wraplength=900, justify="left").grid(
+        ttk.Label(d, text=HINT_TEXT, style="Hint.TLabel", wraplength=900, justify="left").grid(
             row=2, column=0, sticky="w", padx=pad, pady=(3, 0)
         )
 
-        opts = ttk.Frame(r)
+        opts = ttk.Frame(d)
         opts.grid(row=3, column=0, sticky="w", padx=pad, pady=(8, 0))
         for i, ctx in enumerate(core.CONTEXT_IDS):
             ttk.Checkbutton(opts, text=core.LABEL[ctx].split("（")[0], variable=self.var_ctx[ctx]).grid(
@@ -113,7 +158,7 @@ class App:
             row=0, column=len(core.CONTEXT_IDS), sticky="w", padx=(6, 0)
         )
 
-        acts = ttk.Frame(r)
+        acts = ttk.Frame(d)
         acts.grid(row=4, column=0, sticky="ew", padx=pad, pady=(10, 0))
         acts.columnconfigure(5, weight=1)
         ttk.Button(acts, text="预 览", command=self.preview).grid(row=0, column=0)
@@ -122,11 +167,11 @@ class App:
         ttk.Button(acts, text="重启资源管理器", command=self.restart_explorer).grid(row=0, column=3, padx=8)
         ttk.Button(acts, text="备份目录", command=self.open_backups).grid(row=0, column=4)
 
-        ttk.Label(r, text="当前子菜单项：双击可填入名称)").grid(
+        ttk.Label(d, text="当前子菜单项：双击可填入名称)").grid(
             row=5, column=0, sticky="w", padx=pad, pady=(12, 2)
         )
 
-        self.ctx_frame = ttk.Frame(r)
+        self.ctx_frame = ttk.Frame(d)
         self.ctx_frame.grid(row=6, column=0, sticky="nsew", padx=pad)
         for i in range(len(core.CONTEXT_IDS)):
             # tkinter 等宽三列的正确写法：每列都要 weight + 相同的 uniform
@@ -141,24 +186,48 @@ class App:
             lb.pack(fill="both", expand=True, padx=4, pady=4)
             self.listboxes[ctx] = lb
 
-        # 日志标题行：左侧标题，右侧「清空日志」按钮
-        log_head = ttk.Frame(r)
-        log_head.grid(row=7, column=0, sticky="ew", padx=pad, pady=(12, 2))
-        log_head.columnconfigure(1, weight=1)
-        ttk.Label(log_head, text="日志").grid(row=0, column=0, sticky="w")
-        ttk.Button(log_head, text="清空日志", command=self.clear_log).grid(row=0, column=2, sticky="e")
+    # ---------------------------------------------------------------- 添加页
+    def _layout_add_tab(self, a: ttk.Frame, pad: int) -> None:
+        a.columnconfigure(1, weight=1)
 
-        self.log_box = ScrolledText(
-            r, height=10, state="disabled", wrap="word",
-            font=("Microsoft YaHei UI", 9), relief="solid", borderwidth=1
+        ttk.Label(
+            a,
+            text="把一个新的可执行程序加入「通过IDE打开」的三个位置。\n"
+                 "菜单文本自动生成为「通过 （应用名） 打开」，图标取该 exe 自身的图标。",
+            style="Hint.TLabel", justify="left", wraplength=880,
+        ).grid(row=0, column=0, columnspan=3, sticky="w", pady=(0, 10))
+
+        ttk.Label(a, text="程序路径").grid(row=1, column=0, sticky="w", pady=4)
+        self.ent_exe = ttk.Entry(a, textvariable=self.var_exe, font=("Microsoft YaHei UI", 10))
+        self.ent_exe.grid(row=1, column=1, sticky="ew", padx=8, pady=4)
+        ttk.Button(a, text="浏览…", command=self.browse_exe).grid(row=1, column=2, sticky="e", pady=4)
+
+        ttk.Label(a, text="应用名称").grid(row=2, column=0, sticky="w", pady=4)
+        self.ent_app = ttk.Entry(a, textvariable=self.var_app, font=("Microsoft YaHei UI", 10))
+        self.ent_app.grid(row=2, column=1, sticky="ew", padx=8, pady=4)
+        ttk.Button(a, text="从版本信息读取", command=self.use_version_name).grid(
+            row=2, column=2, sticky="e", pady=4
         )
-        self.log_box.grid(row=8, column=0, sticky="nsew", padx=pad)
 
-        status = ttk.Frame(r)
-        status.grid(row=9, column=0, sticky="ew", padx=pad, pady=(6, 0))
-        status.columnconfigure(0, weight=1)
-        ttk.Label(status, textvariable=self.var_status, style="Status.TLabel").grid(row=0, column=0, sticky="w")
-        ttk.Label(status, text=core.DEFAULT_BACKUP_DIR, style="Status.TLabel").grid(row=0, column=1, sticky="e")
+        hive_box = ttk.LabelFrame(a, text="写入位置", style="GroupTitle.TLabelframe")
+        hive_box.grid(row=3, column=0, columnspan=3, sticky="ew", pady=(10, 4))
+        ttk.Radiobutton(hive_box, text="当前用户（HKCU，无需管理员权限）",
+                        value="HKCU", variable=self.var_hive).grid(row=0, column=0, sticky="w", padx=10, pady=4)
+        ttk.Radiobutton(hive_box, text="所有用户（HKLM，需管理员权限）",
+                        value="HKLM", variable=self.var_hive).grid(row=1, column=0, sticky="w", padx=10, pady=(0, 4))
+
+        acts = ttk.Frame(a)
+        acts.grid(row=4, column=0, columnspan=3, sticky="w", pady=(10, 0))
+        ttk.Button(acts, text="添加到三个菜单", style="Primary.TButton", command=self.add_app).grid(row=0, column=0)
+        ttk.Button(acts, text="预 览", command=self.preview_add).grid(row=0, column=1, padx=8)
+        ttk.Button(acts, text="清 空", command=self.clear_add).grid(row=0, column=2)
+
+        ttk.Label(
+            a,
+            text="提示：应用名称默认取 exe 的文件名（去掉 .exe）。\n"
+                 "若 exe 的版本信息里有更合适的名称，点「从版本信息读取」即可替换。",
+            style="Hint.TLabel", justify="left",
+        ).grid(row=5, column=0, columnspan=3, sticky="w", pady=(12, 0))
 
     # ---------------------------------------------------------------- 事件
     def _bind(self) -> None:
@@ -391,6 +460,121 @@ class App:
         except Exception as exc:  # noqa: BLE001
             messagebox.showerror("失败", str(exc))
 
+    # ---------------------------------------------------------------- 添加页
+    def _app_name(self) -> str:
+        """当前填写（或可自动推断）的应用名。"""
+        name = self.var_app.get().strip()
+        if name:
+            return name
+        path = self.var_exe.get().strip()
+        return core.app_name_from_path(path) if path else ""
+
+    def _resolved_exe(self) -> str:
+        path = self.var_exe.get().strip().strip('"')
+        return os.path.abspath(os.path.expandvars(path)) if path else ""
+
+    def browse_exe(self) -> None:
+        path = filedialog.askopenfilename(
+            title="选择要加入「通过IDE打开」的程序",
+            filetypes=[("可执行文件", "*.exe"), ("所有文件", "*.*")],
+        )
+        if not path:
+            return
+        self.var_exe.set(path)
+        self.var_app.set(core.app_name_from_path(path))
+        self.log(f"已选择: {path}", COL_MUTED)
+        self.log(f"应用名称: {core.make_label(self._app_name())}", COL_MUTED)
+
+    def use_version_name(self) -> None:
+        path = self._resolved_exe()
+        if not path:
+            messagebox.showwarning("缺少路径", "请先浏览或填写 exe 的完整路径。")
+            return
+        name = core.app_name_from_version_info(path)
+        if not name:
+            messagebox.showinfo("没有版本信息", "该文件没有可用的版本信息（ProductName/FileDescription）。")
+            return
+        self.var_app.set(name)
+        self.log(f"已从版本信息读取应用名: {name}", COL_MUTED)
+        self.log(f"菜单文本将变为: {core.make_label(name)}", COL_MUTED)
+
+    def clear_add(self) -> None:
+        self.var_exe.set("")
+        self.var_app.set("")
+        self.ent_exe.focus_set()
+
+    def preview_add(self) -> None:
+        self._banner("添加 · 预演")
+        path = self._resolved_exe()
+        if not path:
+            self.log("请先浏览或填写 exe 的完整路径。", COL_WARN)
+            return
+        name = self._app_name()
+        label = core.make_label(name)
+        self.log(f"程序路径 : {path}", COL_MUTED)
+        self.log(f"应用名称 : {name}", COL_MUTED)
+        self.log(f"菜单文本 : {label}", COL_OK)
+        self.log(f"图标来源 : {core.exe_icon_path(path)}", COL_MUTED)
+        for ctx in core.CONTEXT_IDS:
+            self.log(f"  → {core.LABEL[ctx]}：{path} {core.PLACEHOLDER[ctx]}", COL_INFO)
+        self.log(f"写入位置 : {self.var_hive.get()}   （尚未做任何修改）", COL_INFO)
+
+    def add_app(self) -> None:
+        path = self._resolved_exe()
+        if not path:
+            messagebox.showwarning("缺少路径", "请先浏览或填写 exe 的完整路径。")
+            return
+        name = self._app_name()
+        if not name:
+            messagebox.showwarning("缺少应用名称", "无法从该文件名推断应用名称，请手动填写。")
+            return
+
+        label = core.make_label(name)
+        hive = self.var_hive.get()
+        lines = [
+            "即将把下面的程序加入「通过IDE打开」的三个位置：",
+            "",
+            f"  程序路径 : {path}",
+            f"  菜单文本 : {label}",
+            f"  图标     : {core.exe_icon_path(path)}",
+            f"  写入位置 : {hive}",
+            "",
+        ]
+        for ctx in core.CONTEXT_IDS:
+            lines.append(f"  · {core.LABEL[ctx]}  →  {path} {core.PLACEHOLDER[ctx]}")
+        lines += ["", "写入前会自动导出 .reg 备份。", "确定继续吗？"]
+        if not messagebox.askyesno("确认添加", "\n".join(lines), default="no"):
+            self._banner("添加")
+            self.log("已取消。", COL_MUTED)
+            return
+
+        self._banner("添加")
+        try:
+            log = core.add_items(path, name, core.CONTEXT_IDS, hive, backup=True)
+        except ValueError as exc:
+            messagebox.showerror("无法添加", str(exc))
+            return
+        except Exception as exc:  # noqa: BLE001
+            messagebox.showerror("添加失败", str(exc))
+            return
+
+        for line in log:
+            color = COL_OK if line.startswith("ADDED") else (
+                COL_MUTED if line.startswith("BACKUP") else COL_WARN)
+            self.log(f"  {line}", color)
+
+        need_admin = [x for x in log if x.startswith("NEEDADMIN")]
+        if need_admin:
+            messagebox.showwarning(
+                "需要管理员权限",
+                "以下位置写入失败，因为 HKLM 需要管理员权限：\n\n"
+                + "\n".join(need_admin)
+                + "\n\n请以管理员身份重新运行本程序后重试。",
+            )
+
+        self.refresh()
+        self.log("完成。菜单将在重启资源管理器后更新。", COL_INFO)
+
 
 def _center(root: tk.Tk, width: int, height: int) -> None:
     sw, sh = root.winfo_screenwidth(), root.winfo_screenheight()
@@ -459,6 +643,12 @@ def self_test(root: tk.Tk, app: App) -> int:
             expect = len({i.context for i in items if i.label == pats})
         ok = "OK " if n == expect else "BAD"
         print(f"match {ok}  {[core.escape_non_ascii(pats)]} -> {n} (expect {expect})")
+
+    tabs = [app.nb.tab(i, "text") for i in range(app.nb.index("end"))]
+    print(f"tabs       : {tabs}  (current={app.nb.tab(app.nb.select(), 'text')})")
+    print(f"add exe's  : {app.ent_exe.winfo_width()} x {app.ent_exe.winfo_height()}")
+    print(f"add app's  : {app.ent_app.winfo_width()} x {app.ent_app.winfo_height()}")
+    print(f"add hive   : {app.var_hive.get()}")
 
     print(f"status     : {app.var_status.get()}")
     print("checkboxes : "
