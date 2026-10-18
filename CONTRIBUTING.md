@@ -1,18 +1,20 @@
-# Contributing
+[English](CONTRIBUTING-en.md)
 
-Contributions are welcome. Keep changes focused and describe the motivation, test environment and known limitations.
+# 参与贡献
 
-## Before submitting
+欢迎改进本项目。请保持改动聚焦，说明目的、测试环境和已知限制。
 
-- Do not commit secrets, personal paths, private data, temporary build artifacts or unauthorized third-party material.
-- Record compatibility and safety impact for hardware, registry, flashing or external-resource changes.
-- Keep Chinese and English documentation synchronized when applicable.
-- Run existing tests or self-checks and report the result in the pull request.
+## 提交前检查
 
-## Pull requests
+- 不要提交密钥、个人路径、隐私数据、临时构建产物或未经授权的第三方内容。
+- 涉及硬件、注册表、烧录地址或外部资源时，记录兼容性和安全影响。
+- 文档改动请同步检查中英文版本。
+- 运行已有测试或自检命令，并在 PR 中报告结果。
 
-Describe what changed, why it changed, how it was verified and any user-visible behavior changes.
+## Pull Request
 
-## License
+请说明改动、动机、验证方法和用户需要注意的行为变化。
 
-Original contributions are licensed under the repository's [MIT License](LICENSE); third-party components and assets retain their own terms.
+## 许可证
+
+原创贡献按仓库 [MIT License](LICENSE) 授权；第三方组件、素材和链接遵循各自条款。
