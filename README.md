@@ -1,246 +1,159 @@
-﻿# 通过IDE打开·右键菜单项管理 (阿董)
+<div align="center">
 
-一个 Windows 右键菜单管理工具，用于查看和删除「通过IDE打开」级联菜单里的子菜单项。
+# 通过 IDE 打开 · 右键菜单项管理
 
-## 这是什么
+**Windows 右键菜单管理工具：查看、备份、删除或添加「通过 IDE 打开」级联菜单项。**
 
-「通过IDE打开」是一个 **级联右键菜单**（static cascading menu）。它注册在三处：
+[![Platform](https://img.shields.io/badge/Platform-Windows%2010%2F11-informational.svg)](https://learn.microsoft.com/windows/)
+[![Python](https://img.shields.io/badge/Python-3.8%2B-blue.svg)](https://www.python.org/)
+[![GUI](https://img.shields.io/badge/GUI-Tkinter-purple.svg)](https://docs.python.org/3/library/tkinter.html)
+[![Build](https://img.shields.io/badge/Build-PyInstaller-blue.svg)](https://pyinstaller.org/)
 
-| 场景 | 触发方式 | 注册表父键 |
-|---|---|---|
-| **文件** | 选中文件后右键 | `*\shell` |
-| **文件夹** | 右键文件夹本身 | `Directory\shell` |
-| **目录背景** | 在文件夹空白处右键 | `Directory\Background\shell` |
+</div>
 
-每一处的子菜单项都是各自独立注册的，数量和内容不一定相同，示例：
+## 目录
 
-```
-通过IDE打开
-├── 通过 Code 打开
-├── 通过 Cursor 打开
-├── 通过 OpenCode 打开
-└── 通过 TRAE CN 打开
-```
+- [核心特性](#核心特性)
+- [工作原理](#工作原理)
+- [安装与运行](#安装与运行)
+- [使用方法](#使用方法)
+- [命令行接口](#命令行接口)
+- [从源码构建](#从源码构建)
+- [项目结构](#项目结构)
+- [权限与安全](#权限与安全)
+- [常见问题](#常见问题)
+- [许可证](#许可证)
 
-本工具分别列出这三处的 **全部** 子菜单项（三列不做交集，各显示各的），并支持 **按名称一次性从多处同时删除**（某处没有该项则自动跳过）。
+## 核心特性
 
-## 功能
-
-- **三列并排展示** 各自上下文的全部子菜单项，双击任意一项即可填入输入框
-- **按应用名首字母自动排序**：每次添加、删除或刷新后，三列都会各自重新按应用名排序
-- **一次输入，多处同步删除**
-- **必须输入完整名称**：输入 `通过 Code 打开` 才会命中；只写 `Code`（注册表子键名）不会命中
-- 支持 **通配符**：`通过 TRAE* 打开` 可匹配 `通过 TRAE CN 打开`
-- **删除前自动备份**：每个将被改动的叶子键先 `reg export` 成 `.reg` 文件
-- **一键重启资源管理器** 使改动立即生效
-- 完整操作日志，可随时 **清空日志**
-- 未匹配时会列出当前可用的完整名称，便于纠正输入
-
-### 排序规则
-
-三列里的每一项都是独立排序的，互不影响。排序键是**菜单项全称里抠出来的应用名**
-（`通过 Code 打开` → `Code`），**不是**注册表子键名 —— 因为 HKLM 里有一批子键名与菜单项
-名称是错位的，靠子键名排会排出完全错误的顺序。
-
-比较用 Windows 的 `CompareStringEx`（区域设置跟随系统，忽略大小写）：
-
-- 英文名按字母序，**忽略大小写**；`NORM_IGNORECASE` 下 NLS 仍以大小写作次级排序键，
-  所以 `ANT` 会排在 `apple` 前面 —— 这正符合「按首字母」的字面含义。
-- 中文系统（zh-CN）上，**英文名排在前面，中文名再按拼音排**。实测：
-  `Antigravity, apple, Code, Cursor, zebra, 阿里, 百度, 钉钉, 微信, 字节跳动`。
-- `CompareStringEx` 不可用时自动退回 `casefold()` 码位序，功能不受影响。
-
-## 使用方法
-
-### 图形界面
-
-双击运行 **`dist\通过IDE打开·右键菜单项管理 (阿董).exe`**
-
-1. 在「要删除的子菜单项全称」输入框中填写 **完整名称**
-   - 例如 `通过 Code 打开`、`通过 OpenCode 打开`
-   - 多个名称用 **逗号 / 分号 / 竖线** 分隔；名称中的空格不会被拆开
-   - 支持 `*` 和 `?` 通配符
-   - 也可以直接 **双击下方列表项** 自动填入
-2. 勾选要操作的上下文（默认三处全选；只影响删除范围，不影响列表显示）
-3. 点 **预 览** 确认将要删除什么，满意后点 **删 除**
-4. 按提示重启资源管理器
-
-> 三个列表框始终显示各自上下文的真实内容，与勾选状态无关。
-
-### 命令行（可选，仅源码方式）
-
-不再单独打包命令行 exe，但 `ide_menu.cli` 仍在源码中保留：
-
-```powershell
-python -m ide_menu --list                          列出三处当前的子菜单项
-python -m ide_menu -n "通过 Code 打开" --dry-run    预览，不实际删除
-python -m ide_menu -n "通过 Code 打开" -y           删除（三处同时）
-python -m ide_menu -n "通过 TRAE* 打开" -y          通配符
-python -m ide_menu -n "通过 Code 打开" -c Bg        只处理目录背景
-python -m ide_menu --help                          完整帮助
-```
-
-退出码：`0` 已删除 / `1` 无匹配（未做任何修改）/ `2` 错误。
-
-## 从源码运行 / 构建
-
-需要 **标准 Windows 版 CPython**（PyInstaller 不支持 MSYS2/MinGW 版 Python）。
-
-```powershell
-# 运行测试
-python -m unittest discover -s tests -v
-
-# 界面自检（打印布局与匹配规则自检后退出，不进入消息循环）
-python -m ide_menu --self-test
-
-# 构建 exe（产物在 dist\）
-python build.py
-```
-
-`build.py` 只产出一个 onefile 可执行文件：
-
-| 文件 | 用途 |
-|---|---|
-| `dist\通过IDE打开·右键菜单项管理 (阿董).exe` | 图形界面（无控制台窗口） |
+| 特性 | 说明 |
+| --- | --- |
+| 三种上下文 | 分别管理文件、文件夹和目录背景中的级联菜单 |
+| 独立列表 | 三列展示各自真实存在的全部子菜单项，不做交集 |
+| 批量删除 | 一次输入完整菜单名称，可同时处理多个上下文 |
+| 通配符 | 支持 `*` 和 `?` 匹配菜单显示名称 |
+| 自动备份 | 删除前对实际修改的注册表叶子键导出 `.reg` 备份 |
+| 添加应用 | 将新的 exe 添加到三个「通过 IDE 打开」菜单 |
+| 原生界面 | Tkinter GUI，支持日志、预览、刷新和资源管理器重启 |
+| 命令行 | 支持列出、预览、删除和自检 |
 
 ## 工作原理
 
-该菜单项本身没有命令，只有一个指向叶子键的指针（`ExtendedSubCommandsKey`）：
+「通过 IDE 打开」是一个 Windows 级联右键菜单。它通过 `ExtendedSubCommandsKey` 指向三个叶子键：
 
-```
-HKCU\Software\Classes\*\shell\OpenViaIDE
-                                └─ ExtendedSubCommandsKey = OpenViaIDE_File
-HKCU\Software\Classes\Directory\shell\OpenViaIDE
-                                └─ ExtendedSubCommandsKey = OpenViaIDE_Dir
-HKCU\Software\Classes\Directory\Background\shell\OpenViaIDE
-                                └─ ExtendedSubCommandsKey = OpenViaIDE_Bg
+```text
+文件：        HKCU/HKLM\Software\Classes\*\shell\OpenViaIDE_File
+文件夹：      HKCU/HKLM\Software\Classes\Directory\shell\OpenViaIDE_Dir
+目录背景：    HKCU/HKLM\Software\Classes\Directory\Background\shell\OpenViaIDE_Bg
 ```
 
-三个叶子键 `OpenViaIDE_File` / `OpenViaIDE_Dir` / `OpenViaIDE_Bg` 下才是真正的子菜单项。
+工具读取并合并 `HKCU` 与 `HKLM` 的注册表内容，按菜单显示名排序。删除时会检查两个配置单元，尽量避免只删除一半导致残留。
 
-### HKCR 合并视图（重要）
+> `HKCR` 是 `HKCU\Software\Classes` 与 `HKLM\Software\Classes` 的合并视图；写入或删除 HKLM 内容需要管理员权限。
 
-`ExtendedSubCommandsKey` 里的名字是相对 **HKCR** 解析的。HKCR 是
-`HKLM\Software\Classes` 与 `HKCU\Software\Classes` 的**合并视图**，子键取**并集**。
+## 安装与运行
 
-所以同一个叶子键可能一半在 HKLM、一半在 HKCU，本工具的处理方式：
+### 使用打包 exe
 
-- **读取**两个配置单元并合并，值冲突时以 HKLM 优先（与系统顺序一致）；
-- 界面里每一栏显示的是该上下文**自己那份合并后的完整列表**（各多少项就显示多少项）；
-- **删除**时会对该项实际存在的每个配置单元都删一遍，避免残留另一半；
-- 写 HKLM 需要管理员权限，不足时日志输出 `NEEDADMIN` 并提示以管理员身份重试。
+从 Release 或本地 `dist\` 目录运行：
 
-本机实例：文件 / 目录背景各有 6 项（HKLM 的 CLion、Antigravity、ChatGPT
-+ HKCU 的 Code、Cursor、OpenCode），文件夹因 HKLM 侧不存在而只有 3 项。
-
-每个子项的 **显示名** 存在 `MUIVerb`，**注册表子键名**则是内部标识（如 `Code`）。
-本工具的匹配规则针对 **显示名**，因为那才是用户在右键菜单里看到的文字。
-
-> 注：注册表里可能存在「子键名与显示名对不上」的既有脏数据
-> （例如子键 `Antigravity` 的显示名是「通过 CLion 打开」）。
-> 由于显示名与实际启动的程序是一致的，菜单看起来是正常的，
-> 而按显示名匹配也恰好不受这种脏数据影响。
-
-命令行占位符规则：
-
-- `%1` = 选中的文件 / **文件夹**（用于 `*\shell` 和 `Directory\shell`）
-- `%V` = 当前文件夹，**仅**用于 `Directory\Background\shell`
-
-备份默认输出到 `%TEMP%\OpenViaIDE-backup\`，用 `reg import <文件>` 即可回滚。
-
-## 目录结构
-
-```
-ide_menu/
-    __init__.py
-    core.py        注册表读写核心（winreg）
-    cli.py         命令行界面（仅源码，不单独打包）
-    gui.py         tkinter 图形界面
-    __main__.py    入口分发
-entry_gui.py        可执行文件入口
-build.py            PyInstaller 构建脚本
-tests/test_core.py  单元测试
+```text
+通过IDE打开·右键菜单项管理 (阿董).exe
 ```
 
-## 注意事项
+程序会根据清单请求管理员权限，以便处理位于 HKLM 的系统级菜单项。
 
-- 改动右键菜单后 **需要重启资源管理器** 才会生效（界面提供按钮，不会自动重启）。
-- 本机装有 **ContextMenuManager** 一类会自动同步注册表的工具，它可能把被删除的子菜单项 **重新写回来**。删除后请确认一次；若被还原，需要在该工具中同步移除。
-- 删除 **HKCU** 下的键不需要管理员权限；删除 **HKLM** 下的键需要以管理员身份运行本程序，否则日志会给出 `NEEDADMIN` 提示。
+### 从源码运行
 
-## 管理员权限（每次双击都会弹 UAC）
+需要标准 Windows 版 CPython；不支持 MSYS2/MinGW 版 Python：
 
-「通过 IDE 打开」的菜单项一部分在 `HKLM\Software\Classes` 下，**写入 HKLM 必须有管理员权限**，
-因此打包时给 exe 写入了 UAC 清单：
-
-```python
-# build.py
-COMMON_ARGS = ["--onefile", "--clean", "--noconfirm", "--uac-admin", ...]
+```powershell
+git clone https://github.com/user1745/open-via-ide-context-menu-item-management.git
+cd open-via-ide-context-menu-item-management
+python -m ide_menu --self-test
+python entry_gui.py
 ```
 
-PyInstaller 的 `--uac-admin` 会把
+## 使用方法
 
-```xml
-<requestedExecutionLevel level="requireAdministrator" uiAccess="false"/>
+### 查看与删除
+
+1. 在「删除子菜单项」页查看文件、文件夹和目录背景三列。
+2. 输入完整显示名称，例如 `通过 Code 打开`。
+3. 多个名称可用逗号、分号或竖线分隔；支持 `通过 TRAE* 打开`。
+4. 点击「预览」确认命中项。
+5. 确认后点击「删除」，需要时重启资源管理器使改动生效。
+
+必须输入菜单显示名称，而不是注册表内部子键名。
+
+### 添加应用
+
+1. 选择或输入 `.exe` 路径。
+2. 确认应用名称和写入范围。
+3. 预览将写入的三处菜单项。
+4. 点击「添加到三个菜单」，然后重启资源管理器。
+
+程序会自动使用 exe 图标、生成安全的注册表子键名，并在写入前导出备份。
+
+## 命令行接口
+
+```powershell
+python -m ide_menu --list
+python -m ide_menu -n "通过 Code 打开" --dry-run
+python -m ide_menu -n "通过 Code 打开" -y
+python -m ide_menu -n "通过 TRAE* 打开" -y
+python -m ide_menu -n "通过 Code 打开" -c Bg
+python -m ide_menu --self-test
 ```
 
-写进 exe 的清单，于是 **Windows 每次双击都会先弹 UAC，进程直接就是管理员**。
+退出码：`0` 表示已删除或自检通过，`1` 表示无匹配且未修改，`2` 表示发生错误。
 
-另外还有一层运行时兜底（`entry_gui.py`）：
+## 从源码构建
 
-```python
-if "--self-test" not in argv and not core.is_admin():
-    if core.require_admin(gui_title=APP_TITLE, gui=True):
-        raise SystemExit(0)   # 已重新以管理员身份拉起，本进程退出
+```powershell
+python -m unittest discover -s tests -v
+python -m ide_menu --self-test
+python build.py
 ```
 
-覆盖「用 `python entry_gui.py` 直接跑」或「打包时漏了 `--uac-admin`」的情况；
-用户点「否」则会以当前身份继续运行，此时 HKLM 的操作会得到 `NEEDADMIN` 提示。
+`build.py` 使用 PyInstaller 生成 onefile GUI exe，并写入管理员权限清单。
 
-## 许可
+## 项目结构
 
-仅供个人使用。
-
----
-
-## 新增：添加应用到「通过 IDE 打开」
-
-界面顶部新增两个分页：**删除子菜单项** / **添加应用**。
-
-「添加应用」页可以把一个新的可执行程序加入三个位置的「通过 IDE 打开」菜单。
-
-### 使用方法
-
-1. **程序路径** —— 点「浏览…」选择一个 `.exe`，或直接把完整路径粘贴/输入到输入框。
-2. **应用名称** —— 默认自动取 exe 的文件名（去掉 `.exe`）。
-   例如 `clion64.exe` → `CLion`（即 `D:\JetBrains\CLion 2026.1.1in\clion64.exe`）。
-   若某个 exe 的文件名不合适（版本号、带后缀等），可点「从版本信息读取」，
-   从 PE 版本信息的 `ProductName` → `FileDescription` → `InternalName` 依次取值。
-3. **写入位置** ——
-   - `当前用户（HKCU）`：不需要管理员权限，推荐；
-   - `所有用户（HKLM）`：对全机生效，**需要以管理员身份运行本程序**，否则会提示权限不足。
-4. 点「预 览」查看将要写入的内容，确认无误后点「添加到三个菜单」。
-
-### 会写些什么
-
-对 `文件` / `文件夹` / `目录背景` 三个上下文各写一条，形式为：
-
-```
-<hive>\Software\Classes\OpenViaIDE_<上下文>\shell\<子键名>\
-    MUIVerb   = "通过 （应用名） 打开"
-    Icon      = "C:\...\app.exe,0"
-    command\
-        ""   = "\"C:\...\app.exe\" \"%1\""      (Bg 上下文用 "%V")
+```text
+├── ide_menu/
+│   ├── core.py          # 注册表读写、匹配、备份与权限逻辑
+│   ├── cli.py           # 命令行接口
+│   ├── gui.py           # Tkinter 图形界面
+│   └── __main__.py      # 入口分发
+├── entry_gui.py         # GUI 入口
+├── build.py             # PyInstaller 构建脚本
+├── tests/               # 单元测试
+├── requirements.txt
+└── README.md
 ```
 
-- **图标**直接取该 exe 自身的第一个图标资源（注册表写法 `路径,0`）。
-- **占位符**沿用既有规则：`%1` 用于文件 / 文件夹，`%V` 仅用于目录背景。
-- **子键名**由应用名清洗而来（非法字符替换为 `_`），若已存在则自动追加 `_2`、`_3`…。
-  子键名只是注册表内部标识，实际显示与匹配都以 **MUIVerb 全称** 为准。
-- **自动去重**：若同一上下文里已存在「同名 + 同命令」的项，会跳过并提示，不会产生重复项。
-- 写入前同样会导出 `.reg` 备份。
+## 权限与安全
 
-### 注意事项
+- 修改注册表前会创建 `.reg` 备份；默认备份目录为 `%TEMP%\OpenViaIDE-backup\`。
+- 删除 HKCU 项通常不需要管理员权限；删除或添加 HKLM 项需要管理员权限。
+- 本工具不会自动重启资源管理器，改动生效前请保存其他程序中的工作。
+- 第三方注册表同步工具可能把已删除项目重新写回，需要在对应工具中同步清理。
 
-- 添加后菜单不会立刻出现，需要重启资源管理器（界面上有「重启资源管理器」按钮）。
-- `ContextMenuManager` 等后台工具可能会把 HKLM 下的条目改写回去。
+## 常见问题
+
+### 菜单没有立即变化
+
+重启资源管理器；如果仍未变化，检查项目是否同时存在于 HKCU 和 HKLM，或被其他菜单管理工具恢复。
+
+### 删除提示 `NEEDADMIN`
+
+以管理员身份重新运行程序。HKLM 下的系统级菜单项不能由普通用户写入。
+
+### 误删后如何恢复
+
+使用删除前生成的 `.reg` 文件执行 `reg import <备份文件>`，或从备份目录中选择对应配置单元的导出文件。
+
+## 许可证
+
+本仓库当前未声明开源许可证。使用、修改和再分发前请先获得作者授权；其中 Windows、Python、PyInstaller 及其他工具链分别受其自身许可证约束。
